@@ -1,266 +1,11 @@
 import sys
 import os
-from evdev import InputDevice, categorize, ecodes, KeyEvent
+from evdev import InputDevice, categorize, ecodes, KeyEvent, list_devices
+from usb_kbd_keycode import usb_kbd_keycode
 
-# Map USB Keysym to linux Keysym since the translation happens normally
-# in driver, but the Koolertron keymap bin uses USB HID codes. We have to
-# replicate the mapping here.
-#
-# from https://github.com/torvalds/linux/blob/master/drivers/hid/usbhid/usbkbd.c
-usb_kbd_keycode = [
-    0,
-    0,
-    0,
-    0,
-    30,
-    48,
-    46,
-    32,
-    18,
-    33,
-    34,
-    35,
-    23,
-    36,
-    37,
-    38,
-    50,
-    49,
-    24,
-    25,
-    16,
-    19,
-    31,
-    20,
-    22,
-    47,
-    17,
-    45,
-    21,
-    44,
-    2,
-    3,
-    4,
-    5,
-    6,
-    7,
-    8,
-    9,
-    10,
-    11,
-    28,
-    1,
-    14,
-    15,
-    57,
-    12,
-    13,
-    26,
-    27,
-    43,
-    43,
-    39,
-    40,
-    41,
-    51,
-    52,
-    53,
-    58,
-    59,
-    60,
-    61,
-    62,
-    63,
-    64,
-    65,
-    66,
-    67,
-    68,
-    87,
-    88,
-    99,
-    70,
-    119,
-    110,
-    102,
-    104,
-    111,
-    107,
-    109,
-    106,
-    105,
-    108,
-    103,
-    69,
-    98,
-    55,
-    74,
-    78,
-    96,
-    79,
-    80,
-    81,
-    75,
-    76,
-    77,
-    71,
-    72,
-    73,
-    82,
-    83,
-    86,
-    127,
-    116,
-    117,
-    183,
-    184,
-    185,
-    186,
-    187,
-    188,
-    189,
-    190,
-    191,
-    192,
-    193,
-    194,
-    134,
-    138,
-    130,
-    132,
-    128,
-    129,
-    131,
-    137,
-    133,
-    135,
-    136,
-    113,
-    115,
-    114,
-    0,
-    0,
-    0,
-    121,
-    0,
-    89,
-    93,
-    124,
-    92,
-    94,
-    95,
-    0,
-    0,
-    0,
-    122,
-    123,
-    90,
-    91,
-    85,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    29,
-    42,
-    56,
-    125,
-    97,
-    54,
-    100,
-    126,
-    164,
-    166,
-    165,
-    163,
-    161,
-    115,
-    114,
-    113,
-    150,
-    158,
-    159,
-    128,
-    136,
-    177,
-    178,
-    176,
-    142,
-    152,
-    173,
-    140,
-]
+# See https://usb-ids.gowdy.us/read/UD/04b4
+CYPRESS_VENDOR = 0x4B4
+THUMB_BOARD = 0x818
 
 
 class CircleBufferIter:
@@ -323,23 +68,79 @@ def is_mod_release_alias(old_event, new_event, aliases):
     )
 
 
-def process_ev(evbuff, aliases, new_event):
-    if any(is_mod_release_alias(old_event, new_event, aliases) for old_event in evbuff):
+def process_ev(event_buffer, aliases, new_event):
+    if any(
+        is_mod_release_alias(old_event, new_event, aliases)
+        for old_event in event_buffer
+    ):
         print("alias")
-    evbuff.add(new_event)
+    event_buffer.add(new_event)
+
+
+def is_thumb_board(device):
+    if device.name == "LingYao ShangHai Thumb Keyboard" or (
+        device.info.vendor == CYPRESS_VENDOR and device.info.product == THUMB_BOARD
+    ):
+
+        cap = device.capabilities(verbose=True)
+        key_keys = [x for x in cap.keys() if "EV_KEY" in x]
+        if 0 == len(key_keys):
+            return False
+
+        device_keys = cap[key_keys[0]]
+        # filter out pointer devices since the keyboard presents a keyboard and
+        # pointer device. we only care about the keyboard
+        return len([k for k in device_key if "BTN_MOUSE" not in k])
+    return False
+
+
+def identify_thumb_board():
+    devices = [InputDevice(path) for path in list_devices()]
+    for device in devices:
+        print(device.name, device.phys, device.capabilities(verbose=True))
+    thumb_boards = [
+        device
+        for device in devices
+        if device.name == "LingYao ShangHai Thumb Keyboard"
+        or (device.info.vendor == CYPRESS_VENDOR and device.info.product == THUMB_BOARD)
+        and device.capabilities(verbose=True)
+    ]
+
+    print(thumb_boards)
+
+    if len(thumb_boards) < 1:
+        return None
+    thumb_board = thumb_boards[-1]
+
+    for evdev_device in devices:
+        if evdev_device != thumb_board:
+            evdev_device.close()
+
+    return thumb_board
 
 
 def main(argv):
-    dev = InputDevice(
-        "/dev/input/by-id/usb-LingYao_ShangHai_Thumb_Keyboard_081820131130-event-kbd"
+    thumb_board = identify_thumb_board()
+    if thumb_board is None:
+        print("could not find a Thumb Keyboard")
+        return 1
+    print(
+        "binding to %s (%x %x)"
+        % (thumb_board.path, thumb_board.info.vendor, thumb_board.info.product)
     )
+
     aliases = get_aliasing_map(open("halfquerty-v2.bin", "rb").read())
-    evbuff = CircleBuffer(5)
+    event_buffer = CircleBuffer(5)
     print("aliases", aliases)
-    print(dev)
-    for event in dev.read_loop():
-        if event.type == ecodes.EV_KEY:
-            process_ev(evbuff, aliases, event)
+
+    try:
+        for event in thumb_board.read_loop():
+            if event.type == ecodes.EV_KEY:
+                process_ev(event_buffer, aliases, event)
+    except e:
+        return 0 if e is KeyboardInterrupt else 1
+    finally:
+        return 1
 
 
 if __name__ == "__main__":
