@@ -69,12 +69,23 @@ def get_aliasing_map(mapdef_bin):
     return aliases
 
 
+def is_typing_key(key_event):
+    return key_event.scancode not in [
+        ecodes.KEY_LEFTSHIFT,
+        ecodes.KEY_RIGHTSHIFT,
+        ecodes.KEY_LEFTCTRL,
+        ecodes.KEY_RIGHTCTRL,
+    ]
+
+
 def is_mod_release_alias(old_event, new_event, aliases):
     k_new = KeyEvent(new_event)
     k_old = KeyEvent(old_event)
     return (
         old_event.sec == new_event.sec
         and abs(old_event.usec - new_event.usec) < 1
+        and is_typing_key(k_new)
+        and is_typing_key(k_old)
         and KeyEvent(old_event).keystate == KeyEvent.key_up
         and k_new.keystate == KeyEvent.key_down
         and k_new.scancode in aliases
