@@ -10,6 +10,21 @@ I found Koolertron manufacturing [one handed keyboards](http://www.koolertron.co
 
 This repo is for some tools to help deal with this set up.
 
+## Setup
+
+In order to read from devices, the evdev scripts need to be run from a user in the `input` group.
+
+```
+sudo gpasswd -a $USER input
+```
+
+Installing dependencies
+
+```
+sudo dnf install pipenv # Get pipenv https://pipenv.pypa.io/en/latest/
+pipenv install
+```
+
 ## Multi-Layer Aliasing
 
 ```
