@@ -10,7 +10,7 @@ I found Koolertron manufacturing [one handed keyboards](http://www.koolertron.co
 
 This repo is for some tools to help deal with this set up.
 
-## Aliasing
+## Multi-Layer Aliasing
 
 ```
 pipenv run python layeralias
