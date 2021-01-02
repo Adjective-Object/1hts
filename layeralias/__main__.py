@@ -1,11 +1,25 @@
 import sys
 import os
-from evdev import InputDevice, categorize, ecodes, KeyEvent, list_devices
+import traceback
+from evdev import InputDevice, categorize, ecodes, KeyEvent, list_devices, UInput
 from usb_kbd_keycode import usb_kbd_keycode
 
 # See https://usb-ids.gowdy.us/read/UD/04b4
 CYPRESS_VENDOR = 0x4B4
 THUMB_BOARD = 0x818
+
+
+def full_stack():
+    exc = sys.exc_info()[0]
+    stack = traceback.extract_stack()[:-1]  # last one would be full_stack()
+    if exc is not None:  # i.e. an exception is present
+        del stack[-1]  # remove call of full_stack, the printed exception
+        # will contain the caught exception caller instead
+    trc = "Traceback (most recent call last):\n"
+    stackstr = trc + "".join(traceback.format_list(stack))
+    if exc is not None:
+        stackstr += "  " + traceback.format_exc().lstrip(trc)
+    return stackstr
 
 
 class CircleBufferIter:
@@ -68,12 +82,25 @@ def is_mod_release_alias(old_event, new_event, aliases):
     )
 
 
-def process_ev(event_buffer, aliases, new_event):
-    if any(
-        is_mod_release_alias(old_event, new_event, aliases)
+def process_ev(event_buffer, aliases, new_event, ui):
+    release_aliasing = [
+        old_event
         for old_event in event_buffer
-    ):
-        print("alias")
+        if is_mod_release_alias(old_event, new_event, aliases)
+    ]
+
+    if len(release_aliasing):
+        old_event = release_aliasing[0]
+        k_new = KeyEvent(new_event)
+        k_old = KeyEvent(old_event)
+
+        print(
+            "detected layer release aliasing (%s/%s)" % (k_old.keycode, k_new.keycode)
+        )
+        ui.write(ecodes.EV_KEY, ecodes.KEY_BACKSPACE, 1)  # down
+        ui.write(ecodes.EV_KEY, ecodes.KEY_BACKSPACE, 0)  # up
+        ui.syn()
+
     event_buffer.add(new_event)
 
 
@@ -96,8 +123,6 @@ def is_thumb_board(device):
 
 def identify_thumb_board():
     devices = [InputDevice(path) for path in list_devices()]
-    for device in devices:
-        print(device.name, device.phys, device.capabilities(verbose=True))
     thumb_boards = [
         device
         for device in devices
@@ -105,8 +130,6 @@ def identify_thumb_board():
         or (device.info.vendor == CYPRESS_VENDOR and device.info.product == THUMB_BOARD)
         and device.capabilities(verbose=True)
     ]
-
-    print(thumb_boards)
 
     if len(thumb_boards) < 1:
         return None
@@ -134,12 +157,16 @@ def main(argv):
     print("aliases", aliases)
 
     try:
+        ui = UInput()
         for event in thumb_board.read_loop():
             if event.type == ecodes.EV_KEY:
-                process_ev(event_buffer, aliases, event)
-    except e:
-        return 0 if e is KeyboardInterrupt else 1
+                process_ev(event_buffer, aliases, event, ui)
+    except KeyboardInterrupt as e:
+        return 0
+    except Exception as e:
+        print(full_stack())
     finally:
+        ui.close()
         return 1
 
 
