@@ -117,10 +117,56 @@ def handle_early_press_alias(event_buffer, new_event, forward_aliases, ui, alias
         return False
 
     newcode = KeyEvent(new_event)
-    if newcode.scancode not in alias_keys or newcode.keystate != KeyEvent.key_down:
+
+    aliasrelease, aliaspress = evts[-2], evts[-1]
+    if (
+        newcode.scancode in alias_keys
+        and newcode.keystate == KeyEvent.key_down
+        and is_mod_press_alias(
+            KeyEvent(aliasrelease), KeyEvent(aliaspress), forward_aliases
+        )
+        and abs(usec_delta(aliaspress, new_event)) < 100000
+    ):
+        # press alias detected
+        print(
+            "detected late layer press aliasing (%s/%s -> %s)"
+            % (
+                KeyEvent(aliasrelease).keycode,
+                KeyEvent(aliaspress).keycode,
+                KeyEvent(new_event).keycode,
+            )
+        )
+        # delete the alias char and the new char
+        ui.write(ecodes.EV_KEY, ecodes.KEY_BACKSPACE, 1)  # down
+        ui.write(ecodes.EV_KEY, ecodes.KEY_BACKSPACE, 0)  # up
+        ui.syn()
+        ui.write(ecodes.EV_KEY, ecodes.KEY_BACKSPACE, 1)  # down
+        ui.write(ecodes.EV_KEY, ecodes.KEY_BACKSPACE, 0)  # up
+        ui.syn()
+
+        # repeat the new keypress
+        # print(newcode.scancode)
+        ui.write(ecodes.EV_KEY, newcode.scancode, 1)  # down
+        ui.write(ecodes.EV_KEY, newcode.scancode, 0)  # up
+        ui.write(ecodes.EV_KEY, newcode.scancode, 1)  # down
+        ui.write(ecodes.EV_KEY, newcode.scancode, 0)  # up
+
+        ui.syn()
+
+        return True
+
+    return False
+
+
+def handle_late_press_alias(event_buffer, new_event, forward_aliases, ui, alias_keys):
+    evts = list(event_buffer)
+    if len(evts) < 2:
         return False
 
-    x = [str(KeyEvent(e)) for e in evts]
+    newcode = KeyEvent(new_event)
+    aliasrelease, aliaspress = evts[-2], evts[-1]
+
+    # x = [str(KeyEvent(e)) for e in evts]
     # print(
     #     ")))",
     #     "\n".join(x),
@@ -129,41 +175,35 @@ def handle_early_press_alias(event_buffer, new_event, forward_aliases, ui, alias
     #     list(reversed(list(zip(x, x[1:])))),
     # )
 
-    # step more recent to less
-    for (aliasrelease, aliaspress) in reversed(list(zip(evts, evts[1:]))):
-        if (
-            is_mod_press_alias(
-                KeyEvent(aliasrelease), KeyEvent(aliaspress), forward_aliases
+    if (
+        newcode.scancode == KeyEvent(aliaspress).scancode
+        and newcode.keystate == KeyEvent.key_up
+        and is_mod_press_alias(
+            KeyEvent(aliasrelease), KeyEvent(aliaspress), forward_aliases
+        )
+    ):
+        # press alias detected
+        print(
+            "detected early layer press aliasing (%s/%s)"
+            % (
+                KeyEvent(aliasrelease).keycode,
+                KeyEvent(aliaspress).keycode,
             )
-            and abs(usec_delta(aliaspress, new_event)) < 100000
-        ):
-            # press alias detected
-            print(
-                "detected early layer press aliasing (%s/%s -> %s)"
-                % (
-                    KeyEvent(aliasrelease).keycode,
-                    KeyEvent(aliaspress).keycode,
-                    KeyEvent(new_event).keycode,
-                )
-            )
-            # delete the alias char and the new char
-            ui.write(ecodes.EV_KEY, ecodes.KEY_BACKSPACE, 1)  # down
-            ui.write(ecodes.EV_KEY, ecodes.KEY_BACKSPACE, 0)  # up
-            ui.syn()
-            ui.write(ecodes.EV_KEY, ecodes.KEY_BACKSPACE, 1)  # down
-            ui.write(ecodes.EV_KEY, ecodes.KEY_BACKSPACE, 0)  # up
-            ui.syn()
+        )
+        # delete the alias char, the correct char, and the new char
+        ui.write(ecodes.EV_KEY, ecodes.KEY_BACKSPACE, 1)  # down
+        ui.write(ecodes.EV_KEY, ecodes.KEY_BACKSPACE, 0)  # up
+        ui.syn()
+        ui.write(ecodes.EV_KEY, ecodes.KEY_BACKSPACE, 1)  # down
+        ui.write(ecodes.EV_KEY, ecodes.KEY_BACKSPACE, 0)  # up
+        ui.syn()
 
-            # repeat the new keypress
-            # print(newcode.scancode)
-            ui.write(ecodes.EV_KEY, newcode.scancode, 1)  # down
-            ui.write(ecodes.EV_KEY, newcode.scancode, 0)  # up
-            ui.write(ecodes.EV_KEY, newcode.scancode, 1)  # down
-            ui.write(ecodes.EV_KEY, newcode.scancode, 0)  # up
+        # repeat the correct keypress
+        ui.write(ecodes.EV_KEY, KeyEvent(aliaspress).scancode, 1)  # down
+        ui.write(ecodes.EV_KEY, KeyEvent(aliaspress).scancode, 0)  # up
+        ui.syn()
 
-            ui.syn()
-
-            return True
+        return True
 
     return False
 
@@ -197,6 +237,9 @@ def handle_early_release_alias(event_buffer, new_event, forward_aliases, ui):
 def process_ev(event_buffer, forward_aliases, new_event, ui, alias_keys):
     (
         handle_early_press_alias(
+            event_buffer, new_event, forward_aliases, ui, alias_keys
+        )
+        or handle_late_press_alias(
             event_buffer, new_event, forward_aliases, ui, alias_keys
         )
         or handle_early_release_alias(event_buffer, new_event, forward_aliases, ui)
