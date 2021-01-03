@@ -54,19 +54,22 @@ class CircleBuffer:
 
 
 def get_aliasing_map(mapdef_bin):
-    aliases = dict()
+    forward_aliases = dict()
+    alias_keys = set()
     for i in range(0, len(mapdef_bin), 4):
         k_id, k1, k2, k3 = (int(x) for x in mapdef_bin[i : i + 4])
         k1 = usb_kbd_keycode[k1]
         k2 = usb_kbd_keycode[k2]
         k3 = usb_kbd_keycode[k3]
         if k_id == 0x8A:
-            if k1 not in aliases:
-                aliases[k1] = set()
-            aliases[k1].add(k2)
-            aliases[k1].add(k3)
+            if k1 not in forward_aliases:
+                forward_aliases[k1] = set()
+            forward_aliases[k1].add(k2)
+            forward_aliases[k1].add(k3)
+            alias_keys.add(k2)
+            alias_keys.add(k3)
 
-    return aliases
+    return forward_aliases, alias_keys
 
 
 def is_typing_key(key_event):
@@ -78,26 +81,100 @@ def is_typing_key(key_event):
     ]
 
 
-def is_mod_release_alias(old_event, new_event, aliases):
-    k_new = KeyEvent(new_event)
-    k_old = KeyEvent(old_event)
+def usec_delta(a, b):
+    return (a.sec - b.sec) * 1000000 + (a.usec - b.usec)
+
+
+def is_alias_pair(k_unmodified, k_modified, forward_aliases):
     return (
-        old_event.sec == new_event.sec
-        and abs(old_event.usec - new_event.usec) < 1
-        and is_typing_key(k_new)
-        and is_typing_key(k_old)
-        and KeyEvent(old_event).keystate == KeyEvent.key_up
-        and k_new.keystate == KeyEvent.key_down
-        and k_new.scancode in aliases
-        and k_old.scancode in aliases[k_new.scancode]
+        abs(usec_delta(k_unmodified.event, k_modified.event)) < 1
+        and is_typing_key(k_modified)
+        and is_typing_key(k_unmodified)
+        and k_unmodified.scancode in forward_aliases
+        and k_modified.scancode in forward_aliases[k_unmodified.scancode]
     )
 
 
-def process_ev(event_buffer, aliases, new_event, ui):
+def is_mod_release_alias(k_old, k_new, forward_aliases):
+    return (
+        is_alias_pair(k_new, k_old, forward_aliases)
+        and k_old.keystate == KeyEvent.key_up
+        and k_new.keystate == KeyEvent.key_down
+    )
+
+
+def is_mod_press_alias(k_old, k_new, forward_aliases):
+    return (
+        is_alias_pair(k_old, k_new, forward_aliases)
+        and k_old.keystate == KeyEvent.key_up
+        and k_new.keystate == KeyEvent.key_down
+    )
+
+
+def handle_early_press_alias(event_buffer, new_event, forward_aliases, ui, alias_keys):
+    evts = list(event_buffer)
+    if len(evts) < 2:
+        return False
+
+    newcode = KeyEvent(new_event)
+    if newcode.scancode not in alias_keys or newcode.keystate != KeyEvent.key_down:
+        return False
+
+    x = [str(KeyEvent(e)) for e in evts]
+    # print(
+    #     ")))",
+    #     "\n".join(x),
+    #     "|||",
+    #     KeyEvent(new_event),
+    #     list(reversed(list(zip(x, x[1:])))),
+    # )
+
+    # step more recent to less
+    for (aliasrelease, aliaspress) in reversed(list(zip(evts, evts[1:]))):
+        if (
+            is_mod_press_alias(
+                KeyEvent(aliasrelease), KeyEvent(aliaspress), forward_aliases
+            )
+            and abs(usec_delta(aliaspress, new_event)) < 100000
+        ):
+            # press alias detected
+            print(
+                "detected early layer press aliasing (%s/%s -> %s)"
+                % (
+                    KeyEvent(aliasrelease).keycode,
+                    KeyEvent(aliaspress).keycode,
+                    KeyEvent(new_event).keycode,
+                )
+            )
+            # delete the alias char and the new char
+            ui.write(ecodes.EV_KEY, ecodes.KEY_BACKSPACE, 1)  # down
+            ui.write(ecodes.EV_KEY, ecodes.KEY_BACKSPACE, 0)  # up
+            ui.syn()
+            ui.write(ecodes.EV_KEY, ecodes.KEY_BACKSPACE, 1)  # down
+            ui.write(ecodes.EV_KEY, ecodes.KEY_BACKSPACE, 0)  # up
+            ui.syn()
+
+            # repeat the new keypress
+            # print(newcode.scancode)
+            ui.write(ecodes.EV_KEY, newcode.scancode, 1)  # down
+            ui.write(ecodes.EV_KEY, newcode.scancode, 0)  # up
+            ui.write(ecodes.EV_KEY, newcode.scancode, 1)  # down
+            ui.write(ecodes.EV_KEY, newcode.scancode, 0)  # up
+
+            ui.syn()
+
+            return True
+
+    return False
+
+
+def handle_early_release_alias(event_buffer, new_event, forward_aliases, ui):
     release_aliasing = [
         old_event
         for old_event in event_buffer
-        if is_mod_release_alias(old_event, new_event, aliases)
+        if is_mod_release_alias(
+            KeyEvent(old_event), KeyEvent(new_event), forward_aliases
+        )
     ]
 
     if len(release_aliasing):
@@ -111,6 +188,19 @@ def process_ev(event_buffer, aliases, new_event, ui):
         ui.write(ecodes.EV_KEY, ecodes.KEY_BACKSPACE, 1)  # down
         ui.write(ecodes.EV_KEY, ecodes.KEY_BACKSPACE, 0)  # up
         ui.syn()
+
+        return True
+
+    return False
+
+
+def process_ev(event_buffer, forward_aliases, new_event, ui, alias_keys):
+    (
+        handle_early_press_alias(
+            event_buffer, new_event, forward_aliases, ui, alias_keys
+        )
+        or handle_early_release_alias(event_buffer, new_event, forward_aliases, ui)
+    )
 
     event_buffer.add(new_event)
 
@@ -163,15 +253,18 @@ def main(argv):
         % (thumb_board.path, thumb_board.info.vendor, thumb_board.info.product)
     )
 
-    aliases = get_aliasing_map(open("halfquerty-v2.bin", "rb").read())
+    forward_aliases, alias_keys = get_aliasing_map(
+        open("halfquerty-v2.bin", "rb").read()
+    )
     event_buffer = CircleBuffer(5)
-    print("aliases", aliases)
+    print("forward_aliases", forward_aliases)
+    print("alias_keys", alias_keys)
 
     try:
         ui = UInput()
         for event in thumb_board.read_loop():
             if event.type == ecodes.EV_KEY:
-                process_ev(event_buffer, aliases, event, ui)
+                process_ev(event_buffer, forward_aliases, event, ui, alias_keys)
     except KeyboardInterrupt as e:
         return 0
     except Exception as e:
