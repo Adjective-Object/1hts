@@ -5,6 +5,7 @@ from Xlib.display import Display
 from Xlib.ext import xinput
 from Xlib import XK
 from vocab import Vocab
+from evdev import ecodes, UInput
 
 
 def is_well_known_ctrl_hotkey(c):
@@ -12,6 +13,20 @@ def is_well_known_ctrl_hotkey(c):
 
 
 space_chars = set([" ", "\t", "\n"])
+
+STEP_PREV = ecodes.KEY_F23
+STEP_NEXT = ecodes.KEY_F22
+SELECT_ACTIVE = ecodes.KEY_F21
+
+
+BG_NOHL = "#222222"
+FG_NOHL = "#EEEEEE"
+
+BG_HL = "#1111AA"
+FG_HL = "#FFFFFF"
+
+BG_SEL = "#444444"
+FG_SEL = "#EEEEEE"
 
 
 class TypingTracker:
@@ -161,15 +176,83 @@ class SuggestionLabel:
         self.sel_label = tk.Label(
             container,
             textvariable=self.var,
-            cnf={"font": "monospace 12", "fg": "#EEEEEE", "bg": "#0000EE", "height": 1},
+            cnf={
+                "font": "monospace 12",
+                "height": 1,
+                "fg": FG_NOHL,
+                "bg": BG_NOHL,
+            },
         )
 
-    def update(self, txt):
+    def update(self, txt, selected):
         self.var.set(txt)
+        if selected:
+            self.sel_label.configure(
+                {
+                    "fg": FG_HL,
+                    "bg": BG_HL,
+                }
+            )
+        else:
+            self.sel_label.configure(
+                {
+                    "fg": FG_NOHL,
+                    "bg": BG_NOHL,
+                }
+            )
+
         self.sel_label.pack()
 
     def dispose(self):
         self.sel_label.destroy()
+
+
+def get_last_word(buffer):
+    lastspaceidx = buffer.rfind(" ")
+    lastwordstartidx = 0 if lastspaceidx == -1 else lastspaceidx + 1
+    return buffer[lastwordstartidx:]
+
+
+def correct_typing_buffer(display, ui, current_content, intended_content):
+    print("correct_typing_buffer", current_content, intended_content)
+
+    first_mismatch_idx = 0
+    while (
+        first_mismatch_idx < len(current_content)
+        and current_content[first_mismatch_idx] == intended_content[first_mismatch_idx]
+    ):
+        first_mismatch_idx += 1
+
+    # clear buffer backwards
+    numbkspc = len(current_content) - first_mismatch_idx
+    print("backspace", numbkspc)
+
+    for i in range(numbkspc):
+        ui.write(ecodes.EV_KEY, ecodes.KEY_BACKSPACE, 1)  # down
+        ui.write(ecodes.EV_KEY, ecodes.KEY_BACKSPACE, 0)  # up
+        ui.syn()
+
+    print("type", intended_content[first_mismatch_idx:])
+
+    # emit intended buffer
+    for char in intended_content[first_mismatch_idx:]:
+        upper = char.isupper()
+        if upper:
+            ui.write(ecodes.KEY_LEFTSHIFT, ecodes.KEY_LEFTSHIFT, 1)  # down
+            ui.syn()
+
+        sym = XK.string_to_keysym(char.lower())
+
+        # linux keycodes are offset by 8bytes
+        code = display.keysym_to_keycode(sym) - 8
+        # print("emit 0x%x %s" % (code, code))
+        ui.write(ecodes.EV_KEY, code, 1)  # down
+        ui.write(ecodes.EV_KEY, code, 0)  # up
+        ui.syn()
+
+        if upper:
+            ui.write(ecodes.KEY_LEFTSHIFT, ecodes.KEY_LEFTSHIFT, 0)  # up
+            ui.syn()
 
 
 def main(argv):
@@ -207,9 +290,11 @@ def main(argv):
     win.geometry("+100+100")
 
     win.wm_attributes("-topmost", 1)
+    win.attributes("-alpha", 0.5)
+    win.config(bg=BG_NOHL)
     win.overrideredirect(True)
 
-    container = tk.Frame(win)
+    container = tk.Frame(win, cnf={"bg": BG_NOHL})
     container.pack()
 
     before_txt_var = tk.StringVar()
@@ -217,7 +302,7 @@ def main(argv):
     before_label = tk.Label(
         container,
         textvariable=before_txt_var,
-        cnf={"font": "monospace 12", "fg": "#EEEEEE", "height": 1},
+        cnf={"font": "monospace 12", "fg": FG_NOHL, "bg": BG_NOHL, "height": 1},
     )
 
     sel_txt_var = tk.StringVar()
@@ -225,7 +310,7 @@ def main(argv):
     sel_label = tk.Label(
         container,
         textvariable=sel_txt_var,
-        cnf={"font": "monospace 12", "fg": "#EEEEEE", "bg": "#0000EE", "height": 1},
+        cnf={"font": "monospace 12", "fg": FG_SEL, "bg": BG_SEL, "height": 1},
     )
 
     after_txt_var = tk.StringVar()
@@ -233,11 +318,12 @@ def main(argv):
     after_label = tk.Label(
         container,
         textvariable=after_txt_var,
-        cnf={"font": "monospace 12", "fg": "#EEEEEE", "height": 1},
+        cnf={"font": "monospace 12", "fg": FG_NOHL, "bg": BG_NOHL, "height": 1},
     )
 
-    suggestion_container = tk.Frame(win)
+    suggestion_container = tk.Frame(win, cnf={"bg": BG_NOHL})
     suggestion_labels = []
+    suggestion_idx = 0
 
     before_label.pack(side=tk.LEFT)
     sel_label.pack(side=tk.LEFT)
@@ -245,6 +331,7 @@ def main(argv):
     suggestion_container.pack(side=tk.BOTTOM)
 
     vocab = Vocab.loads(open("vocab.json", "r").read())
+    ui = UInput()
 
     try:
         while True:
@@ -253,20 +340,39 @@ def main(argv):
                 i += 1
                 event = display.next_event()
 
-                print(event)
+                # print(event)
                 if not event or event.type != 35:
                     continue
 
                 if event.evtype == xinput.KeyPress:
                     keycode = event.data.detail
-                    typing_tracker.handle_keypress_sym(
-                        display.keycode_to_keysym(keycode, 0)
-                    )
+                    keysym = display.keycode_to_keysym(keycode, 0)
+                    if keycode == STEP_NEXT:
+                        suggestion_idx = min(
+                            suggestion_idx + 1, len(suggestion_labels) - 1
+                        )
+                    elif keycode == STEP_PREV:
+                        suggestion_idx = max(suggestion_idx - 1, 0)
+                    elif keycode == SELECT_ACTIVE:
+                        # correct the word to the suggestion
+                        before_text, after_text = typing_tracker.get_text()
+                        last_word = get_last_word(before_text)
+
+                        suggestions = vocab.suggestions(lastword)
+
+                        if suggestion_idx < len(suggestions):
+                            correct_typing_buffer(
+                                display, ui, last_word, suggestions[suggestion_idx]
+                            )
+
+                    else:
+                        typing_tracker.handle_keypress_sym(keysym)
+                        suggestion_idx = 0
+
                 elif event.evtype == xinput.KeyRelease:
                     keycode = event.data.detail
-                    typing_tracker.handle_keyrelease_sym(
-                        display.keycode_to_keysym(keycode, 0)
-                    )
+                    keysym = display.keycode_to_keysym(keycode, 0)
+                    typing_tracker.handle_keyrelease_sym(keysym)
                 elif (
                     event.evtype == xinput.ButtonPress
                     or event.evtype == xinput.RawButtonPress
@@ -275,13 +381,12 @@ def main(argv):
             if i >= 1:
                 before_text, after_text = typing_tracker.get_text()
                 before_txt_var.set(before_text)
+                h = 1 + before_text.count("\r")
+                before_label.configure({"height": h})
                 after_txt_var.set(after_text)
 
-                lastspaceidx = before_text.rfind(" ")
-
-                lastwordstartidx = 0 if lastspaceidx == -1 else lastspaceidx + 1
-                suggestions = vocab.suggestions(before_text[lastwordstartidx:])
-                print(before_text[lastwordstartidx:], suggestions)
+                lastword = get_last_word(before_text)
+                suggestions = vocab.suggestions(lastword)
                 while len(suggestions) > len(suggestion_labels):
                     l = SuggestionLabel(
                         suggestion_container,
@@ -292,8 +397,8 @@ def main(argv):
                     l = suggestion_labels.pop()
                     l.dispose()
 
-                for sugg, label in zip(suggestions, suggestion_labels):
-                    label.update(sugg)
+                for i, (sugg, label) in enumerate(zip(suggestions, suggestion_labels)):
+                    label.update(sugg, i == suggestion_idx)
             win.update_idletasks()
             win.update()
     except KeyboardInterrupt as e:
