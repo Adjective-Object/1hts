@@ -4,6 +4,7 @@ import traceback
 from Xlib.display import Display
 from Xlib.ext import xinput
 from Xlib import XK
+from vocab import Vocab
 
 
 def is_well_known_ctrl_hotkey(c):
@@ -153,6 +154,24 @@ def full_stack():
     return stackstr
 
 
+class SuggestionLabel:
+    def __init__(self, container):
+        self.var = tk.StringVar()
+        self.var.set("")
+        self.sel_label = tk.Label(
+            container,
+            textvariable=self.var,
+            cnf={"font": "monospace 12", "fg": "#EEEEEE", "bg": "#0000EE", "height": 1},
+        )
+
+    def update(self, txt):
+        self.var.set(txt)
+        self.sel_label.pack()
+
+    def dispose(self):
+        self.sel_label.destroy()
+
+
 def main(argv):
     display = Display()
     # Xinput
@@ -217,9 +236,15 @@ def main(argv):
         cnf={"font": "monospace 12", "fg": "#EEEEEE", "height": 1},
     )
 
+    suggestion_container = tk.Frame(win)
+    suggestion_labels = []
+
     before_label.pack(side=tk.LEFT)
     sel_label.pack(side=tk.LEFT)
     after_label.pack(side=tk.LEFT)
+    suggestion_container.pack(side=tk.BOTTOM)
+
+    vocab = Vocab.loads(open("vocab.json", "r").read())
 
     try:
         while True:
@@ -251,6 +276,21 @@ def main(argv):
                 before_text, after_text = typing_tracker.get_text()
                 before_txt_var.set(before_text)
                 after_txt_var.set(after_text)
+
+                suggestions = vocab.suggestions(before_text)
+                print(suggestions)
+                while len(suggestions) > len(suggestion_labels):
+                    l = SuggestionLabel(
+                        suggestion_container,
+                    )
+                    suggestion_labels.append(l)
+
+                while len(suggestions) < len(suggestion_labels):
+                    l = suggestion_labels.pop()
+                    l.dispose()
+
+                for sugg, label in zip(suggestions, suggestion_labels):
+                    label.update(sugg)
 
             win.update_idletasks()
             win.update()

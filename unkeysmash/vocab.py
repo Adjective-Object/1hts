@@ -56,7 +56,11 @@ class Vocab:
         return v
 
     def suggestions(self, word_prefix):
-        return sorted(
-            [w for w in self.words if w in self._words],
-            lambda w: self._wordfreq[w.lower()],
+        return list(
+            sorted(
+                # todo keysmash & repetition
+                [w for w in self._words if word_prefix in w],
+                key=lambda w: self._wordfreq[w.lower()],
+                reverse=True,
+            )[0:5]
         )
