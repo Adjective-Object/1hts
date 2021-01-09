@@ -277,8 +277,11 @@ def main(argv):
                 before_txt_var.set(before_text)
                 after_txt_var.set(after_text)
 
-                suggestions = vocab.suggestions(before_text)
-                print(suggestions)
+                lastspaceidx = before_text.rfind(" ")
+
+                lastwordstartidx = 0 if lastspaceidx == -1 else lastspaceidx + 1
+                suggestions = vocab.suggestions(before_text[lastwordstartidx:])
+                print(before_text[lastwordstartidx:], suggestions)
                 while len(suggestions) > len(suggestion_labels):
                     l = SuggestionLabel(
                         suggestion_container,
@@ -291,7 +294,6 @@ def main(argv):
 
                 for sugg, label in zip(suggestions, suggestion_labels):
                     label.update(sugg)
-
             win.update_idletasks()
             win.update()
     except KeyboardInterrupt as e:
