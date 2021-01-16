@@ -2,7 +2,7 @@ import sys
 import os
 import traceback
 from evdev import InputDevice, categorize, ecodes, KeyEvent, list_devices, UInput
-from usb_kbd_keycode import usb_kbd_keycode
+from ..lib1hts.aliasmap import AliasMap
 
 # See https://usb-ids.gowdy.us/read/UD/04b4
 CYPRESS_VENDOR = 0x4B4
@@ -53,25 +53,6 @@ class CircleBuffer:
         return CircleBufferIter(self)
 
 
-def get_aliasing_map(mapdef_bin):
-    forward_aliases = dict()
-    alias_keys = set()
-    for i in range(0, len(mapdef_bin), 4):
-        k_id, k1, k2, k3 = (int(x) for x in mapdef_bin[i : i + 4])
-        k1 = usb_kbd_keycode[k1]
-        k2 = usb_kbd_keycode[k2]
-        k3 = usb_kbd_keycode[k3]
-        if k_id == 0x8A:
-            if k1 not in forward_aliases:
-                forward_aliases[k1] = set()
-            forward_aliases[k1].add(k2)
-            forward_aliases[k1].add(k3)
-            alias_keys.add(k2)
-            alias_keys.add(k3)
-
-    return forward_aliases, alias_keys
-
-
 def is_typing_key(key_event):
     return key_event.scancode not in [
         ecodes.KEY_LEFTSHIFT,
@@ -111,7 +92,9 @@ def is_mod_press_alias(k_old, k_new, forward_aliases):
     )
 
 
-def handle_early_press_alias(event_buffer, new_event, forward_aliases, ui, alias_keys):
+def handle_early_press_alias(
+    event_buffer, new_event, forward_aliases, ui, alias_target_keys
+):
     evts = list(event_buffer)
     if len(evts) < 2:
         return False
@@ -120,7 +103,7 @@ def handle_early_press_alias(event_buffer, new_event, forward_aliases, ui, alias
 
     aliasrelease, aliaspress = evts[-2], evts[-1]
     if (
-        newcode.scancode in alias_keys
+        newcode.scancode in alias_target_keys
         and newcode.keystate == KeyEvent.key_down
         and is_mod_press_alias(
             KeyEvent(aliasrelease), KeyEvent(aliaspress), forward_aliases
@@ -158,7 +141,9 @@ def handle_early_press_alias(event_buffer, new_event, forward_aliases, ui, alias
     return False
 
 
-def handle_late_press_alias(event_buffer, new_event, forward_aliases, ui, alias_keys):
+def handle_late_press_alias(
+    event_buffer, new_event, forward_aliases, ui, alias_target_keys
+):
     evts = list(event_buffer)
     if len(evts) < 2:
         return False
@@ -234,13 +219,13 @@ def handle_early_release_alias(event_buffer, new_event, forward_aliases, ui):
     return False
 
 
-def process_ev(event_buffer, forward_aliases, new_event, ui, alias_keys):
+def process_ev(event_buffer, forward_aliases, new_event, ui, alias_target_keys):
     (
         handle_early_press_alias(
-            event_buffer, new_event, forward_aliases, ui, alias_keys
+            event_buffer, new_event, forward_aliases, ui, alias_target_keys
         )
         or handle_late_press_alias(
-            event_buffer, new_event, forward_aliases, ui, alias_keys
+            event_buffer, new_event, forward_aliases, ui, alias_target_keys
         )
         or handle_early_release_alias(event_buffer, new_event, forward_aliases, ui)
     )
@@ -296,18 +281,22 @@ def main(argv):
         % (thumb_board.path, thumb_board.info.vendor, thumb_board.info.product)
     )
 
-    forward_aliases, alias_keys = get_aliasing_map(
-        open("halfquerty-v2.bin", "rb").read()
-    )
+    alias_map = AliasMap(open("halfquerty-v2.bin", "rb").read())
     event_buffer = CircleBuffer(5)
-    print("forward_aliases", forward_aliases)
-    print("alias_keys", alias_keys)
+    print("forward_aliases", alias_map.forward_aliases)
+    print("alias_target_keys", alias_map.alias_target_keys)
 
     try:
         ui = UInput()
         for event in thumb_board.read_loop():
             if event.type == ecodes.EV_KEY:
-                process_ev(event_buffer, forward_aliases, event, ui, alias_keys)
+                process_ev(
+                    event_buffer,
+                    alias_map.forward_aliases,
+                    event,
+                    ui,
+                    alias_map.alias_target_keys,
+                )
     except KeyboardInterrupt as e:
         return 0
     except Exception as e:

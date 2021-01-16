@@ -4,12 +4,13 @@ import traceback
 from Xlib.display import Display
 from Xlib.ext import xinput
 from Xlib import XK
-from vocab import Vocab
 from evdev import ecodes, UInput
+from .vocab import Vocab
+from ..lib1hts.aliasmap import AliasMap
 
 
 def is_well_known_ctrl_hotkey(c):
-    return c in "cvzyafs"
+    return c in "cvzyafsd"
 
 
 space_chars = set([" ", "\t", "\n"])
@@ -262,6 +263,8 @@ def main(argv):
     xinput_major = extension_info.major_opcode
 
     typing_tracker = TypingTracker(None)
+
+    aliasing_map = AliasMap(open("halfquerty-v2.bin", "rb").read())
 
     version_info = display.xinput_query_version()
     print(

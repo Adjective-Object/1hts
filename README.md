@@ -28,7 +28,13 @@ pipenv install
 ## Multi-Layer Aliasing
 
 ```
-pipenv run python layeralias
+pipenv run python -m 1hts.layeralias
 ```
 
 When typing across layers, releasing the layer key without releasing the modified key causes a keypress to be emitted for both the modified layer and the base layer. `layeralias` reads the Koolertron keymap, detects aliasing sequences, and emits backspaces to correct the aliasing.
+
+## Opinionated Layer-aware spellcheck
+
+```
+pipenv run python -m 1hts.unkeysmash
+```
