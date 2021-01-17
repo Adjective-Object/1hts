@@ -89,6 +89,10 @@ def is_valid_seq(seq):
             _, target_seq, source_seq = curr
             if source_seq in target_seq or target_seq in source_seq:
                 return False
+            elif len(source_seq) != len(target_seq):
+                return False
+            elif len(set(source_seq).intersection(target_seq)) > 0:
+                return False
 
     for prev, curr in zip(seq, seq[1:]):
         prev_edit_class = prev[0]

@@ -109,21 +109,33 @@ class EditSequencesTest(unittest.TestCase):
             ),
         )
 
-    # def test_edit_sequences_beginning_and_middle_subst(self):
-    #     result = edit_sequences("abcd", "~b_d")
-    #     self.assertEqual(
-    #         result,
-    #         set(
-    #             [
-    #                 (
-    #                     ("SUB", "a", "~"),
-    #                     ("MAT", "b"),
-    #                     ("SUB", "c", "_"),
-    #                     ("MAT", "d"),
-    #                 )
-    #             ]
-    #         ),
-    #     )
+    def test_edit_sequences_beginning_and_middle_subst(self):
+        result = edit_sequences("abcd", "~b_d")
+        self.assertEqual(
+            result,
+            set(
+                [
+                    (
+                        ("SUB", "a", "~"),
+                        ("MAT", "b"),
+                        ("SUB", "c", "_"),
+                        ("MAT", "d"),
+                    ),
+                    (
+                        ("DEL", "ab"),
+                        ("SUB", "c", "~"),
+                        ("INS", "b_"),
+                        ("MAT", "d"),
+                    ),
+                    (
+                        ("INS", "~b"),
+                        ("SUB", "a", "_"),
+                        ("DEL", "bc"),
+                        ("MAT", "d"),
+                    ),
+                ]
+            ),
+        )
 
     # def test_edit_sequences_med_complex_subst(self):
     #     result = edit_sequences("qw'reall", "we're all")
