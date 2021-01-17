@@ -1,3 +1,60 @@
+# TODO: consider
+# spoonerism sequences (DEL x) (MAT y) (INS x) as cheaper
+# than a DEL + an INS
+#
+# scoring SUB based on distance between keys and layer aliasing
+#
+# scoring INS based on distance between adjacent keys + layer
+# aliasing
+def default_score_segment(edit_segment):
+    seg_class = edit_segment[0]
+    if seg_class == "SUB":
+        target, source = edit_segment[1], edit_segment[2]
+        return len(target)
+    else:
+        seg_val = edit_segment[1]
+        if seg_class == "MAT":
+            return -1 * pow(len(seg_class), 2)
+        elif seg_class == "DEL":
+            return 0.5 + len(seg_class)
+        elif seg_class == "INS":
+            return len(seg_class)
+
+
+def default_edit_sequence_score(edit_sequence):
+    return sum(default_score_segment(edit_segment) for edit_segment in edit_sequence)
+
+
+class EditSequencesConfig:
+    def __init__(
+        self,
+        score_diff_cutoff=3,
+        walk_diff_cutoff=5,
+        scoring_algorithm=default_edit_sequence_score,
+    ):
+        self.score_diff_cutoff = score_diff_cutoff
+        self.walk_diff_cutoff = walk_diff_cutoff
+        self.scoring_algorithm = scoring_algorithm
+
+
+class EditSequenceWalkState:
+    def __init__(
+        self,
+    ):
+        self.memo_map = dict()
+        self.scores = dict()
+
+    def check_results(self, target, source, target_len, source_len):
+        k = (target, source, target_len, source_len)
+        if k in self.memo_map:
+            return self.memo_map[k]
+        else:
+            return None
+
+    def set_results(self, target, source, target_len, source_len, results):
+        self.memo_map[(target, source, target_len, source_len)] = results
+
+
 def edit_deletion(seq):
     return ("DEL", seq)
 
@@ -121,10 +178,14 @@ def is_valid_seq(seq):
     return True
 
 
-def _edit_sequences(target, source, target_len, source_len):
+def _edit_sequences(walk_state, target, source, target_len, source_len, config):
+    cached_results = walk_state.check_results(target, source, target_len, source_len)
+    if cached_results is not None:
+        return cached_results
+
     # early exit for long sequences to avoid
     # exponential set growth
-    if abs(target_len - source_len) > 5:
+    if abs(target_len - source_len) > config.walk_diff_cutoff:
         return set()
 
     # base cases
@@ -141,30 +202,62 @@ def _edit_sequences(target, source, target_len, source_len):
             [(edit_match(target[:target_len]),)],
         )
 
-    return set(
+    results = set(
         filter(
             is_valid_seq,
             map(
                 concat_consec,
                 add_to_edit_set(
-                    _edit_sequences(target, source, target_len - 1, source_len),
+                    _edit_sequences(
+                        walk_state, target, source, target_len - 1, source_len, config
+                    ),
                     edit_deletion(target[target_len - 1]),
                 )
                 | add_to_edit_set(
-                    _edit_sequences(target, source, target_len, source_len - 1),
+                    _edit_sequences(
+                        walk_state, target, source, target_len, source_len - 1, config
+                    ),
                     edit_insertion(source[source_len - 1]),
                 )
                 | add_to_edit_set(
-                    _edit_sequences(target, source, target_len - 1, source_len - 1),
+                    _edit_sequences(
+                        walk_state,
+                        target,
+                        source,
+                        target_len - 1,
+                        source_len - 1,
+                        config,
+                    ),
                     edit_subst(
                         target[target_len - 1],
                         source[source_len - 1],
                     ),
                 ),
             ),
-        )
+        ),
     )
 
+    if config.score_diff_cutoff is not None:
+        # filter to best sequences
+        scores = dict()
+        for res_seq in results:
+            if res_seq not in walk_state.scores:
+                walk_state.scores[res_seq] = config.scoring_algorithm(res_seq)
+            scores[res_seq] = walk_state.scores[res_seq]
+        min_score = min(scores.values())
+        filtered_results = set(
+            filter(
+                lambda seq: scores[seq] < min_score + config.score_diff_cutoff, results
+            )
+        )
+        walk_state.set_results(target, source, target_len, source_len, filtered_results)
+        return filtered_results
+    else:
+        walk_state.set_results(target, source, target_len, source_len, results)
+        return results
 
-def edit_sequences(target, source):
-    return _edit_sequences(target, source, len(target), len(source))
+
+def edit_sequences(target, source, config=EditSequencesConfig()):
+    return _edit_sequences(
+        EditSequenceWalkState(), target, source, len(target), len(source), config
+    )

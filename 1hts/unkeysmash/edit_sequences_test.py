@@ -121,28 +121,61 @@ class EditSequencesTest(unittest.TestCase):
                         ("SUB", "c", "_"),
                         ("MAT", "d"),
                     ),
-                    (
-                        ("DEL", "ab"),
-                        ("SUB", "c", "~"),
-                        ("INS", "b_"),
-                        ("MAT", "d"),
-                    ),
-                    (
-                        ("INS", "~b"),
-                        ("SUB", "a", "_"),
-                        ("DEL", "bc"),
-                        ("MAT", "d"),
-                    ),
+                    # (
+                    #     ("DEL", "ab"),
+                    #     ("SUB", "c", "~"),
+                    #     ("INS", "b_"),
+                    #     ("MAT", "d"),
+                    # ),
+                    # (
+                    #     ("INS", "~b"),
+                    #     ("SUB", "a", "_"),
+                    #     ("DEL", "bc"),
+                    #     ("MAT", "d"),
+                    # ),
                 ]
             ),
         )
 
-    # def test_edit_sequences_med_complex_subst(self):
-    #     result = edit_sequences("qw'reall", "we're all")
-    #     self.assertEqual(
-    #         result,
-    #         set([]),
-    #     )
+    def test_edit_sequences_med_complex_subst(self):
+        result = edit_sequences("qw'reall", "we're all")
+        self.assertEqual(
+            result,
+            set(
+                [
+                    (
+                        ("DEL", "q"),
+                        ("MAT", "w"),
+                        ("INS", "e"),
+                        ("MAT", "'re"),
+                        ("INS", " "),
+                        ("MAT", "a"),
+                        ("DEL", "l"),
+                        ("MAT", "l"),
+                        ("INS", "l"),
+                    ),
+                    (
+                        ("DEL", "q"),
+                        ("MAT", "w"),
+                        ("INS", "e"),
+                        ("MAT", "'re"),
+                        ("INS", " "),
+                        ("MAT", "a"),
+                        ("INS", "l"),
+                        ("MAT", "l"),
+                        ("DEL", "l"),
+                    ),
+                    (
+                        ("DEL", "q"),
+                        ("MAT", "w"),
+                        ("INS", "e"),
+                        ("MAT", "'re"),
+                        ("INS", " "),
+                        ("MAT", "all"),
+                    ),
+                ]
+            ),
+        )
 
 
 if __name__ == "__main__":
