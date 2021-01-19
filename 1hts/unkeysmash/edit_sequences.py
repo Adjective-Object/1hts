@@ -257,7 +257,7 @@ def _edit_sequences(walk_state, target, source, target_len, source_len, config):
         return results
 
 
-def edit_sequences(target, source, config=EditSequencesConfig()):
+def get_edit_sequences(target, source, config=EditSequencesConfig()):
     return _edit_sequences(
         EditSequenceWalkState(), target, source, len(target), len(source), config
     )

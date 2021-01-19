@@ -6,6 +6,8 @@ from Xlib.ext import xinput
 from Xlib import XK
 from evdev import ecodes, UInput
 from .vocab import Vocab
+from .suggester import Suggester
+from .edit_sequences import EditSequencesConfig
 from ..lib1hts.aliasmap import AliasMap
 
 
@@ -336,6 +338,8 @@ def main(argv):
     vocab = Vocab.loads(open("vocab.json", "r").read())
     ui = UInput()
 
+    suggester = Suggester(vocab, edit_sequence_config=EditSequencesConfig())
+
     try:
         while True:
             i = 0
@@ -361,7 +365,7 @@ def main(argv):
                         before_text, after_text = typing_tracker.get_text()
                         last_word = get_last_word(before_text)
 
-                        suggestions = vocab.suggestions(lastword)
+                        suggestions = suggester.get_prefix_suggestions(lastword)
 
                         if suggestion_idx < len(suggestions):
                             correct_typing_buffer(
@@ -389,7 +393,7 @@ def main(argv):
                 after_txt_var.set(after_text)
 
                 lastword = get_last_word(before_text)
-                suggestions = vocab.suggestions(lastword)
+                suggestions = suggester.get_prefix_suggestions(lastword)
                 while len(suggestions) > len(suggestion_labels):
                     l = SuggestionLabel(
                         suggestion_container,

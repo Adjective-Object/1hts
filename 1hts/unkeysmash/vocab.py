@@ -10,6 +10,7 @@ class Vocab:
     def __init__(self):
         self._words = set()
         self._wordfreq = dict()
+        self._total_sample_ct = 0
 
     def consume_md_str(self, md_str):
         md_clean_words = re.split(
@@ -39,6 +40,13 @@ class Vocab:
             else:
                 print("omitting", word, "as noise")
 
+        self._update_frequencies()
+
+    def _update_frequencies(self):
+        self._total_sample_ct = sum(self._wordfreq.values())
+        self._max_sample_ct = max(self._wordfreq.values())
+        self._avg_sample_ct = self._total_sample_ct / len(self._wordfreq)
+
     def dumps(self):
         return json.dumps(
             {
@@ -53,14 +61,11 @@ class Vocab:
         dumped = json.loads(dumped_str)
         v._wordfreq = dumped["_wordfreq"]
         v._words = set(dumped["_words"])
+        v._update_frequencies()
         return v
 
-    def suggestions(self, word_prefix):
-        return list(
-            sorted(
-                # todo keysmash & repetition
-                [w for w in self._words if word_prefix in w],
-                key=lambda w: self._wordfreq[w.lower()],
-                reverse=True,
-            )[0:5]
-        )
+    def iterwords(self):
+        return iter(self._words)
+
+    def relative_frequency(self, word):
+        return self._wordfreq[word] / self._max_sample_ct
