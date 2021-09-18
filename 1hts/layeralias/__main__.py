@@ -246,7 +246,7 @@ def is_thumb_board(device):
         device_keys = cap[key_keys[0]]
         # filter out pointer devices since the keyboard presents a keyboard and
         # pointer device. we only care about the keyboard
-        return len([k for k in device_key if "BTN_MOUSE" not in k])
+        return len([k for k in device_keys if "BTN_MOUSE" not in k])
     return False
 
 
@@ -255,9 +255,7 @@ def identify_thumb_board():
     thumb_boards = [
         device
         for device in devices
-        if device.name == "LingYao ShangHai Thumb Keyboard"
-        or (device.info.vendor == CYPRESS_VENDOR and device.info.product == THUMB_BOARD)
-        and device.capabilities(verbose=True)
+        if is_thumb_board(device)
     ]
 
     if len(thumb_boards) < 1:
